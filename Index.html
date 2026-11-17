@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Machine - Image Classifier</title>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Prompt', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: #ffffff;
+            width: 100%;
+            max-width: 480px;
+            padding: 35px 30px;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        h2 {
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        p.subtitle {
+            color: #718096;
+            font-size: 0.9rem;
+            margin-bottom: 25px;
+        }
+
+        .upload-btn-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .btn-upload {
+            background-color: #4f46e5;
+            color: white;
+            padding: 12px 28px;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-upload:hover {
+            background-color: #4338ca;
+            transform: translateY(-2px);
+        }
+
+        .btn-upload:disabled {
+            background-color: #a5b4fc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .upload-btn-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            height: 100%;
+            width: 100%;
+        }
+
+        .preview-box {
+            width: 100%;
+            height: 260px;
+            border: 2px dashed #cbd5e1;
+            border-radius: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 25px;
+            overflow: hidden;
+            background-color: #f8fafc;
+            position: relative;
+        }
+
+        .preview-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: none;
+            border-radius: 10px;
+        }
+
+        .placeholder-text {
+            color: #94a3b8;
+            font-size: 0.95rem;
+        }
+
+        #label-container {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .result-item {
+            background: #f1f5f9;
+            padding: 12px 15px;
+            border-radius: 12px;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .progress-bg {
+            width: 100%;
+            height: 8px;
+            background-color: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: #4f46e5;
+            border-radius: 10px;
+            transition: width 0.4s ease;
+        }
+
+        .status-text {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>ระบบจำแนกภาพอัจฉริยะ</h2>
+    <p class="subtitle">อัปโหลดรูปภาพ 1 ภาพเพื่อให้โมเดลวิเคราะห์ผล</p>
+
+    <div id="status" class="status-text">กำลังโหลดโมเดล AI...</div>
+
+    <div class="upload-btn-wrapper">
+        <button class="btn-upload" id="upload-btn" disabled>
+            📁 เลือกรูปภาพ
+        </button>
+        <input type="file" id="image-upload" accept="image/*" disabled />
+    </div>
+
+    <div class="preview-box">
+        <span class="placeholder-text" id="placeholder">ยังไม่ได้เลือกรูปภาพ</span>
+        <img id="image-preview" src="#" alt="Image Preview" crossorigin="anonymous" />
+    </div>
+
+    <div id="label-container"></div>
+</div>
+
+<!-- ล็อกเวอร์ชัน Library ให้เสถียรสำหรับ GitHub Pages -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+
+<script type="text/javascript">
+    const URL = "https://teachablemachine.withgoogle.com/models/XVRjRyCl8/";
+
+    let model, labelContainer, maxPredictions;
+
+    const imageUpload = document.getElementById('image-upload');
+    const imagePreview = document.getElementById('image-preview');
+    const placeholder = document.getElementById('placeholder');
+    const statusText = document.getElementById('status');
+    const uploadBtn = document.getElementById('upload-btn');
+
+    async function init() {
+        try {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            labelContainer = document.getElementById("label-container");
+
+            statusText.innerText = "โมเดลพร้อมใช้งานแล้ว";
+            statusText.style.color = "#10b981";
+            imageUpload.disabled = false;
+            uploadBtn.disabled = false;
+        } catch (error) {
+            statusText.innerText = "เกิดข้อผิดพลาดในการโหลดโมเดล";
+            statusText.style.color = "#ef4444";
+            console.error(error);
+        }
+    }
+
+    imageUpload.addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = 'block';
+            placeholder.style.display = 'none';
+
+            imagePreview.onload = async function() {
+                await predict();
+            };
+        };
+        reader.readAsDataURL(file);
+    });
+
+    async function predict() {
+        const prediction = await model.predict(imagePreview);
+        prediction.sort((a, b) => b.probability - a.probability);
+
+        labelContainer.innerHTML = "";
+
+        for (let i = 0; i < maxPredictions; i++) {
+            const className = prediction[i].className;
+            const probability = (prediction[i].probability * 100).toFixed(1);
+
+            const resultHTML = `
+                <div class="result-item">
+                    <div class="result-header">
+                        <span>${className}</span>
+                        <span>${probability}%</span>
+                    </div>
+                    <div class="progress-bg">
+                        <div class="progress-fill" style="width: ${probability}%; background-color: ${i === 0 ? '#10b981' : '#6366f1'};"></div>
+                    </div>
+                </div>
+            `;
+            labelContainer.innerHTML += resultHTML;
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>
